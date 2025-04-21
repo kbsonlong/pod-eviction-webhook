@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-eviction-protection
+  namespace: default
+  labels:
+    app: pod-eviction-protection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pod-eviction-protection
+  template:
+    metadata:
+      labels:
+        app: pod-eviction-protection
+    spec:
+      serviceAccountName: pod-eviction-protection
+      containers:
+      - name: webhook
+        image: pod-eviction-protection:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8443
+        env:
+        - name: WEBHOOK_PORT
+          value: "8443"
+        - name: NODE_NOTREADY_THRESHOLD
+          value: "3"
+        - name: NODE_NOTREADY_WINDOW
+          value: "5m"
+        volumeMounts:
+        - name: cert
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+      volumes:
+      - name: cert
+        secret:
+          secretName: pod-eviction-protection-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pod-eviction-protection
+  namespace: default
+spec:
+  ports:
+  - port: 443
+    targetPort: 8443
+  selector:
+    app: pod-eviction-protection
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-eviction-protection
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pod-eviction-protection
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pod-eviction-protection
+subjects:
+- kind: ServiceAccount
+  name: pod-eviction-protection
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: pod-eviction-protection
+  apiGroup: rbac.authorization.k8s.io 
