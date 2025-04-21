@@ -27,4 +27,4 @@ test:
 
 # Run locally
 run:
-	go run cmd/webhook/main.go 
+	go run cmd/webhook/main.go --local 

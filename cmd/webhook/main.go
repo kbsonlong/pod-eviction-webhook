@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -79,7 +80,7 @@ func main() {
 
 	// Create HTTP server
 	server := &http.Server{
-		Addr:    ":" + string(cfg.WebhookPort),
+		Addr:    fmt.Sprintf(":%d", cfg.WebhookPort),
 		Handler: router,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
@@ -97,7 +98,6 @@ func main() {
 	// Start server in a goroutine
 	go func() {
 		klog.Infof("Starting webhook server on port %d", cfg.WebhookPort)
-		// k.log.Infof("%s",type(cfg.WebhookPort))
 		if *localMode {
 			// In local mode, we don't use TLS for simplicity
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
