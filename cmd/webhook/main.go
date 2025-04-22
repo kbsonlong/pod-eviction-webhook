@@ -66,7 +66,7 @@ func main() {
 	callbackHandler := handler.NewCallbackHandler()
 
 	// Create node monitor
-	nodeMonitor := monitor.NewNodeMonitor(clientset, cfg.NodeNotReadyThreshold, cfg.NodeNotReadyWindow, callbackHandler)
+	nodeMonitor := monitor.NewNodeMonitor(clientset, cfg, callbackHandler)
 
 	// Create webhook handler
 	webhookHandler := webhook.NewWebhook(nodeMonitor, clientset)

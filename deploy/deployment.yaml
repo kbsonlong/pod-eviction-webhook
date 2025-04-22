@@ -1,3 +1,41 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-eviction-protection-config
+  namespace: default
+data:
+  node-pools.json: |
+    [
+      {
+        "labelSelector": {
+          "matchLabels": {
+            "pool": "production",
+            "region": "us-east"
+          },
+          "matchExpressions": [
+            {
+              "key": "environment",
+              "operator": "In",
+              "values": ["prod", "staging"]
+            }
+          ]
+        },
+        "threshold": 2,
+        "window": "300s"
+      },
+      {
+        "labelSelector": {
+          "matchLabels": {
+            "pool": "staging",
+            "region": "us-west"
+          }
+        },
+        "threshold": 1,
+        "window": "180s"
+      }
+    ]
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,21 +60,53 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8443
+          name: webhook
         env:
         - name: WEBHOOK_PORT
           value: "8443"
+        - name: CERT_DIR
+          value: "/tmp/k8s-webhook-server/serving-certs"
+        - name: CONFIG_MAP_DIR
+          value: "/etc/webhook/config"
         - name: NODE_NOTREADY_THRESHOLD
-          value: "2"
+          value: "3"
         - name: NODE_NOTREADY_WINDOW
-          value: "5m"
+          value: "300"
         volumeMounts:
-        - name: cert
+        - name: cert-volume
           mountPath: /tmp/k8s-webhook-server/serving-certs
           readOnly: true
+        - name: config-volume
+          mountPath: /etc/webhook/config
+          readOnly: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
       volumes:
-      - name: cert
+      - name: cert-volume
         secret:
-          secretName: pod-eviction-protection-tls
+          secretName: webhook-server-cert
+      - name: config-volume
+        configMap:
+          name: pod-eviction-protection-config
 ---
 apiVersion: v1
 kind: Service
@@ -47,6 +117,8 @@ spec:
   ports:
   - port: 443
     targetPort: 8443
+    protocol: TCP
+    name: webhook
   selector:
     app: pod-eviction-protection
 ---

@@ -6,11 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kbsonlong/webhook/pkg/config"
 	"github.com/kbsonlong/webhook/pkg/handler"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -28,18 +31,16 @@ type NodeMonitor struct {
 	clientset     *kubernetes.Clientset
 	notReadyNodes map[string]time.Time
 	mu            sync.RWMutex
-	threshold     int
-	window        time.Duration
+	config        *config.Config
 	callback      *handler.CallbackHandler
 }
 
 // NewNodeMonitor creates a new NodeMonitor instance
-func NewNodeMonitor(clientset *kubernetes.Clientset, threshold int, window time.Duration, callback *handler.CallbackHandler) *NodeMonitor {
+func NewNodeMonitor(clientset *kubernetes.Clientset, cfg *config.Config, callback *handler.CallbackHandler) *NodeMonitor {
 	return &NodeMonitor{
 		clientset:     clientset,
 		notReadyNodes: make(map[string]time.Time),
-		threshold:     threshold,
-		window:        window,
+		config:        cfg,
 		callback:      callback,
 	}
 }
@@ -100,33 +101,66 @@ func (m *NodeMonitor) ShouldInterceptEviction(pod *v1.Pod) bool {
 	}
 	klog.Infof("Node %s is in NotReady list since %v", pod.Spec.NodeName, timestamp)
 
+	// Get node information
+	node, err := m.clientset.CoreV1().Nodes().Get(context.Background(), pod.Spec.NodeName, metav1.GetOptions{})
+	if err != nil {
+		klog.Errorf("Failed to get node %s: %v", pod.Spec.NodeName, err)
+		return false
+	}
+
+	// Find matching node pool configuration
+	poolConfig := m.findMatchingNodePool(node)
+	if poolConfig == nil {
+		// Use default configuration
+		poolConfig = &config.NodePoolConfig{
+			Threshold: m.config.DefaultThreshold,
+			Window:    m.config.DefaultWindow,
+		}
+	}
+
 	// Calculate the number of NotReady nodes within the window
 	count := 0
 	now := time.Now()
-	klog.Infof("Current time: %v, Time window: %v", now, m.window)
+	klog.Infof("Current time: %v, Time window: %v", now, poolConfig.Window)
 	klog.Infof("Current NotReady nodes: %v", m.getNotReadyNodeNames())
 
 	for nodeName, ts := range m.notReadyNodes {
 		timeSinceNotReady := now.Sub(ts)
-		if timeSinceNotReady < m.window {
+		if timeSinceNotReady < poolConfig.Window {
 			count++
 			klog.Infof("Node %s has been NotReady for %v (within window of %v)",
-				nodeName, timeSinceNotReady, m.window)
+				nodeName, timeSinceNotReady, poolConfig.Window)
 		} else {
 			klog.Infof("Node %s has been NotReady for %v (outside window of %v)",
-				nodeName, timeSinceNotReady, m.window)
+				nodeName, timeSinceNotReady, poolConfig.Window)
 		}
 	}
-	klog.Infof("Total NotReady nodes within window: %d, threshold: %d", count, m.threshold)
+	klog.Infof("Total NotReady nodes within window: %d, threshold: %d", count, poolConfig.Threshold)
 
 	// Update metrics
 	nodeNotReadyCount.Set(float64(count))
 
-	shouldIntercept := count >= m.threshold
+	shouldIntercept := count >= poolConfig.Threshold
 	klog.Infof("Should intercept eviction for pod %s/%s: %v",
 		pod.Namespace, pod.Name, shouldIntercept)
 
 	return shouldIntercept
+}
+
+// findMatchingNodePool finds matching node pool configuration
+func (m *NodeMonitor) findMatchingNodePool(node *v1.Node) *config.NodePoolConfig {
+	for _, pool := range m.config.NodePools {
+		selector, err := metav1.LabelSelectorAsSelector(&pool.LabelSelector)
+		if err != nil {
+			klog.Errorf("Invalid label selector in node pool config: %v", err)
+			continue
+		}
+
+		if selector.Matches(labels.Set(node.Labels)) {
+			return &pool
+		}
+	}
+	return nil
 }
 
 // handleNodeAdd handles node addition events

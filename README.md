@@ -5,7 +5,7 @@
 这是一个Kubernetes Admission Webhook，用于在集群出现多个工作节点NotReady状态时，保护Pod不被驱逐。主要功能包括：
 
 1. 监控集群工作节点状态
-2. 在5分钟内检测到3台及以上Worknodes出现NotReady状态时，自动开启Pod驱逐拦截
+2. 支持基于节点标签配置不同的拦截条件
 3. 拦截Update事件，避免更新Pod状态和添加`deletionGracePeriodSeconds`和`deletionTimestamp`等元数据
 4. 只拦截NotReady节点上的Pod驱逐操作，其他正常节点上的Pod允许正常驱逐
 5. 提供callback进行解除拦截操作
@@ -33,8 +33,83 @@
 
 - `WEBHOOK_PORT`: Webhook服务端口，默认8443
 - `CERT_DIR`: TLS证书目录，默认/tmp/k8s-webhook-server/serving-certs
-- `NODE_NOTREADY_THRESHOLD`: 触发拦截的NotReady节点数量阈值，默认3
-- `NODE_NOTREADY_WINDOW`: 检测时间窗口，默认5分钟
+- `CONFIG_MAP_DIR`: ConfigMap挂载目录，默认/etc/webhook/config
+- `NODE_NOTREADY_THRESHOLD`: 默认触发拦截的NotReady节点数量阈值，默认3
+- `NODE_NOTREADY_WINDOW`: 默认检测时间窗口，默认5分钟
+
+### 节点池配置
+
+节点池配置通过 ConfigMap 挂载，配置示例：
+
+1. 创建 ConfigMap：
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-eviction-protection-config
+  namespace: default
+data:
+  node-pools.json: |
+    [
+      {
+        "labelSelector": {
+          "matchLabels": {
+            "pool": "production",
+            "region": "us-east"
+          },
+          "matchExpressions": [
+            {
+              "key": "environment",
+              "operator": "In",
+              "values": ["prod", "staging"]
+            }
+          ]
+        },
+        "threshold": 2,
+        "window": "300s"
+      },
+      {
+        "labelSelector": {
+          "matchLabels": {
+            "pool": "staging",
+            "region": "us-west"
+          }
+        },
+        "threshold": 1,
+        "window": "180s"
+      }
+    ]
+```
+
+2. 在 Deployment 中挂载 ConfigMap：
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-eviction-protection
+spec:
+  template:
+    spec:
+      containers:
+      - name: webhook
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/webhook/config
+      volumes:
+      - name: config-volume
+        configMap:
+          name: pod-eviction-protection-config
+```
+
+配置说明：
+- `labelSelector`: Kubernetes 标签选择器，支持 `matchLabels` 和 `matchExpressions`
+  - `matchLabels`: 精确匹配的标签键值对
+  - `matchExpressions`: 基于表达式的标签匹配
+    - `key`: 标签键
+    - `operator`: 操作符，支持 In、NotIn、Exists、DoesNotExist
+    - `values`: 标签值列表
+- `threshold`: 触发拦截的NotReady节点数量阈值
+- `window`: 检测时间窗口，支持秒(s)、分钟(m)、小时(h)单位
 
 ### 部署配置
 
