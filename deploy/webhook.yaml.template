@@ -11,7 +11,7 @@ webhooks:
       path: "/validate"
     caBundle: ${CA_BUNDLE}
   rules:
-  - operations: ["DELETE"]
+  - operations: ["DELETE", "UPDATE"]
     apiGroups: [""]
     apiVersions: ["v1"]
     resources: ["pods"]

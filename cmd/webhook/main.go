@@ -65,7 +65,7 @@ func main() {
 	nodeMonitor := monitor.NewNodeMonitor(clientset, cfg.NodeNotReadyThreshold, cfg.NodeNotReadyWindow)
 
 	// Create webhook handler
-	webhookHandler := webhook.NewWebhook(nodeMonitor)
+	webhookHandler := webhook.NewWebhook(nodeMonitor, clientset)
 
 	// Create Gin router
 	router := gin.Default()

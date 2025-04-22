@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -77,20 +78,27 @@ func (m *NodeMonitor) ShouldInterceptEviction(pod *v1.Pod) bool {
 	if pod.Spec.NodeName == "" {
 		return false
 	}
+	klog.Infof("Checking pod %s/%s on node: %s",
+		pod.Namespace, pod.Name, pod.Spec.NodeName)
 
 	// Check if the node is in our NotReady list
 	if _, exists := m.notReadyNodes[pod.Spec.NodeName]; !exists {
+		klog.Infof("Node %s is Ready, allowing eviction for pod %s/%s",
+			pod.Spec.NodeName, pod.Namespace, pod.Name)
 		return false
 	}
 
 	// Count nodes that have been NotReady for less than the window duration
 	count := 0
 	now := time.Now()
-	for _, timestamp := range m.notReadyNodes {
+	for nodeName, timestamp := range m.notReadyNodes {
 		if now.Sub(timestamp) < m.window {
 			count++
+			klog.Infof("Node %s has been NotReady for %v",
+				nodeName, now.Sub(timestamp))
 		}
 	}
+	klog.Infof("Total NotReady nodes within window: %d, threshold: %d", count, m.threshold)
 
 	// Update metrics
 	nodeNotReadyCount.Set(float64(count))
@@ -128,13 +136,19 @@ func (m *NodeMonitor) updateNodeStatus(node *v1.Node) {
 	for _, condition := range node.Status.Conditions {
 		if condition.Type == v1.NodeReady && condition.Status != v1.ConditionTrue {
 			isNotReady = true
+			klog.Infof("Node %s is NotReady, condition: %s, reason: %s, message: %s",
+				node.Name, condition.Type, condition.Reason, condition.Message)
 			break
 		}
 	}
 
 	if isNotReady {
 		m.notReadyNodes[node.Name] = time.Now()
+		klog.Infof("Added node %s to NotReady nodes list, current count: %d",
+			node.Name, len(m.notReadyNodes))
 	} else {
 		delete(m.notReadyNodes, node.Name)
+		klog.Infof("Removed node %s from NotReady nodes list, current count: %d",
+			node.Name, len(m.notReadyNodes))
 	}
 }

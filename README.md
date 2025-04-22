@@ -6,8 +6,9 @@
 
 1. 监控集群工作节点状态
 2. 在5分钟内检测到3台及以上Worknodes出现NotReady状态时，自动开启Pod驱逐拦截
-3. 只拦截NotReady节点上的Pod驱逐操作，其他节点上的Pod允许正常驱逐
-4. 提供配置接口，允许动态调整监控参数
+3. 拦截Update事件，避免更新Pod状态和添加`deletionGracePeriodSeconds`和`deletionTimestamp`等元数据
+4. 只拦截NotReady节点上的Pod驱逐操作，其他节点上的Pod允许正常驱逐
+5. 提供配置接口，允许动态调整监控参数
 
 ## 架构设计
 
