@@ -4,6 +4,13 @@ metadata:
   name: pod-eviction-protection
 webhooks:
 - name: pod-eviction-protection.webhook.io
+  namespaceSelector:
+    matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values:
+      - default
+      - kube-system
   clientConfig:
     service:
       name: pod-eviction-protection

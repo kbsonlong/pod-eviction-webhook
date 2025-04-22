@@ -41,7 +41,7 @@ openssl x509 -req -in ${CERT_DIR}/tls.csr -CA ${CERT_DIR}/ca.crt -CAkey ${CERT_D
     -extensions v3_req -extfile ${CERT_DIR}/csr.conf
 
 # Create Kubernetes secret
-kubectl create secret tls pod-eviction-protection-tls \
+kubectl create secret tls webhook-server-cert \
   --cert=${CERT_DIR}/tls.crt \
   --key=${CERT_DIR}/tls.key \
   --dry-run=client -o yaml > deploy/tls-secret.yaml
