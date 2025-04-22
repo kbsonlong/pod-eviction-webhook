@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.20-alpine AS builder
 
 WORKDIR /app
 
@@ -13,10 +13,14 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o webhook cmd/webhook/main.go
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+RUN GOOS=$(echo $TARGETPLATFORM | cut -d/ -f1) \
+    GOARCH=$(echo $TARGETPLATFORM | cut -d/ -f2) \
+    CGO_ENABLED=0 go build -o webhook cmd/webhook/main.go
 
 # Final stage
-FROM alpine:3.18
+FROM --platform=$TARGETPLATFORM alpine:3.18
 
 WORKDIR /app
 

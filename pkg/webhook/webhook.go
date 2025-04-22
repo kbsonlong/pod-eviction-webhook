@@ -51,9 +51,19 @@ func (w *Webhook) HandleAdmission(c *gin.Context) {
 		return
 	}
 
+	klog.Infof("Received admission request: Operation=%s, Kind=%s, Namespace=%s, Name=%s",
+		admissionReview.Request.Operation,
+		admissionReview.Request.Kind.Kind,
+		admissionReview.Request.Namespace,
+		admissionReview.Request.Name)
+
 	// Only handle DELETE and UPDATE operations for pods
 	if admissionReview.Request.Operation != admissionv1.Delete &&
 		admissionReview.Request.Operation != admissionv1.Update {
+		klog.Infof("Ignoring operation %s for %s/%s",
+			admissionReview.Request.Operation,
+			admissionReview.Request.Namespace,
+			admissionReview.Request.Name)
 		c.JSON(http.StatusOK, admissionReview)
 		return
 	}
@@ -62,20 +72,26 @@ func (w *Webhook) HandleAdmission(c *gin.Context) {
 	var pod v1.Pod
 	if admissionReview.Request.Operation == admissionv1.Delete {
 		if err := json.Unmarshal(admissionReview.Request.OldObject.Raw, &pod); err != nil {
-			klog.Errorf("Failed to decode pod: %v", err)
+			klog.Errorf("Failed to decode pod from OldObject: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		klog.Infof("Processing DELETE request for pod %s/%s on node %s",
+			pod.Namespace, pod.Name, pod.Spec.NodeName)
 	} else {
 		if err := json.Unmarshal(admissionReview.Request.Object.Raw, &pod); err != nil {
-			klog.Errorf("Failed to decode pod: %v", err)
+			klog.Errorf("Failed to decode pod from Object: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		klog.Infof("Processing UPDATE request for pod %s/%s on node %s",
+			pod.Namespace, pod.Name, pod.Spec.NodeName)
 	}
 
 	// Check if we should intercept the eviction
 	shouldIntercept := w.nodeMonitor.ShouldInterceptEviction(&pod)
+	klog.Infof("Eviction decision for pod %s/%s: shouldIntercept=%v",
+		pod.Namespace, pod.Name, shouldIntercept)
 
 	// Update metrics
 	if shouldIntercept {
@@ -84,6 +100,7 @@ func (w *Webhook) HandleAdmission(c *gin.Context) {
 		event := &v1.Event{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "pod-eviction-protection-",
+				Namespace:    pod.Namespace,
 			},
 			InvolvedObject: v1.ObjectReference{
 				Kind:      "Pod",
@@ -125,6 +142,9 @@ func (w *Webhook) HandleAdmission(c *gin.Context) {
 			Reason:  "EvictionProtection",
 			Code:    http.StatusForbidden,
 		}
+		klog.Infof("Denying eviction for pod %s/%s", pod.Namespace, pod.Name)
+	} else {
+		klog.Infof("Allowing eviction for pod %s/%s", pod.Namespace, pod.Name)
 	}
 
 	admissionReview.Response = admissionResponse

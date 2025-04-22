@@ -1,8 +1,8 @@
-.PHONY: build deploy clean generate-certs
+.PHONY: build deploy clean generate-certs create-cluster delete-cluster
 
 # Build the container image
 build:
-	docker build -t pod-eviction-protection:latest .
+	docker buildx build --platform linux/amd64,linux/arm64 -t pod-eviction-protection:latest .
 
 # Deploy the webhook
 deploy:
@@ -27,4 +27,23 @@ test:
 
 # Run locally
 run:
-	go run cmd/webhook/main.go --local 
+	go run cmd/webhook/main.go --local
+
+# Build for local architecture
+build-local:
+	docker buildx build --platform linux/$(shell go env GOARCH) -t pod-eviction-protection:latest .
+
+# Create kind test cluster
+create-cluster:
+	kind create cluster --config kind-config.yaml
+
+# Delete kind test cluster
+delete-cluster:
+	kind delete cluster --name webhook-test
+
+# Load image to kind cluster
+load-image:
+	kind load docker-image pod-eviction-protection:latest --name webhook-test
+
+# Setup test environment
+setup-test: create-cluster build-local load-image generate-certs deploy 

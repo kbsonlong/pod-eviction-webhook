@@ -1,0 +1,12 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: webhook-test
+nodes:
+- role: control-plane
+  image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.3
+- role: worker
+  image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.3
+- role: worker
+  image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.3
+- role: worker
+  image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.3 

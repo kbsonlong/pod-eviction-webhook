@@ -76,26 +76,32 @@ func (m *NodeMonitor) ShouldInterceptEviction(pod *v1.Pod) bool {
 
 	// If the pod is not on a NotReady node, allow eviction
 	if pod.Spec.NodeName == "" {
+		klog.Infof("Pod %s/%s has no node assigned, allowing eviction", pod.Namespace, pod.Name)
 		return false
 	}
-	klog.Infof("Checking pod %s/%s on node: %s",
-		pod.Namespace, pod.Name, pod.Spec.NodeName)
+	klog.Infof("Checking pod %s/%s on node: %s", pod.Namespace, pod.Name, pod.Spec.NodeName)
 
 	// Check if the node is in our NotReady list
-	if _, exists := m.notReadyNodes[pod.Spec.NodeName]; !exists {
+	timestamp, exists := m.notReadyNodes[pod.Spec.NodeName]
+	if !exists {
 		klog.Infof("Node %s is Ready, allowing eviction for pod %s/%s",
 			pod.Spec.NodeName, pod.Namespace, pod.Name)
 		return false
 	}
+	klog.Infof("Node %s is in NotReady list since %v", pod.Spec.NodeName, timestamp)
 
 	// Count nodes that have been NotReady for less than the window duration
 	count := 0
 	now := time.Now()
-	for nodeName, timestamp := range m.notReadyNodes {
-		if now.Sub(timestamp) < m.window {
+	for nodeName, ts := range m.notReadyNodes {
+		timeSinceNotReady := now.Sub(ts)
+		if timeSinceNotReady < m.window {
 			count++
-			klog.Infof("Node %s has been NotReady for %v",
-				nodeName, now.Sub(timestamp))
+			klog.Infof("Node %s has been NotReady for %v (within window of %v)",
+				nodeName, timeSinceNotReady, m.window)
+		} else {
+			klog.Infof("Node %s has been NotReady for %v (outside window of %v)",
+				nodeName, timeSinceNotReady, m.window)
 		}
 	}
 	klog.Infof("Total NotReady nodes within window: %d, threshold: %d", count, m.threshold)
@@ -103,8 +109,11 @@ func (m *NodeMonitor) ShouldInterceptEviction(pod *v1.Pod) bool {
 	// Update metrics
 	nodeNotReadyCount.Set(float64(count))
 
-	// If we have enough NotReady nodes within the window, intercept eviction
-	return count >= m.threshold
+	shouldIntercept := count >= m.threshold
+	klog.Infof("Should intercept eviction for pod %s/%s: %v",
+		pod.Namespace, pod.Name, shouldIntercept)
+
+	return shouldIntercept
 }
 
 // handleNodeAdd handles node addition events
@@ -133,22 +142,39 @@ func (m *NodeMonitor) updateNodeStatus(node *v1.Node) {
 	defer m.mu.Unlock()
 
 	isNotReady := false
-	for _, condition := range node.Status.Conditions {
-		if condition.Type == v1.NodeReady && condition.Status != v1.ConditionTrue {
-			isNotReady = true
-			klog.Infof("Node %s is NotReady, condition: %s, reason: %s, message: %s",
-				node.Name, condition.Type, condition.Reason, condition.Message)
+	var notReadyCondition *v1.NodeCondition
+	for i, condition := range node.Status.Conditions {
+		if condition.Type == v1.NodeReady {
+			if condition.Status != v1.ConditionTrue {
+				isNotReady = true
+				notReadyCondition = &node.Status.Conditions[i]
+			}
 			break
 		}
 	}
 
-	if isNotReady {
+	if isNotReady && notReadyCondition != nil {
+		klog.Infof("Node %s is NotReady: Status=%s, Reason=%s, Message=%s, LastTransitionTime=%v",
+			node.Name, notReadyCondition.Status, notReadyCondition.Reason,
+			notReadyCondition.Message, notReadyCondition.LastTransitionTime)
+
 		m.notReadyNodes[node.Name] = time.Now()
-		klog.Infof("Added node %s to NotReady nodes list, current count: %d",
-			node.Name, len(m.notReadyNodes))
+		klog.Infof("Added/Updated node %s in NotReady nodes list, current count: %d, nodes: %v",
+			node.Name, len(m.notReadyNodes), m.getNotReadyNodeNames())
 	} else {
-		delete(m.notReadyNodes, node.Name)
-		klog.Infof("Removed node %s from NotReady nodes list, current count: %d",
-			node.Name, len(m.notReadyNodes))
+		if _, exists := m.notReadyNodes[node.Name]; exists {
+			delete(m.notReadyNodes, node.Name)
+			klog.Infof("Removed node %s from NotReady nodes list, current count: %d, remaining nodes: %v",
+				node.Name, len(m.notReadyNodes), m.getNotReadyNodeNames())
+		}
 	}
+}
+
+// getNotReadyNodeNames returns a list of NotReady node names for logging
+func (m *NodeMonitor) getNotReadyNodeNames() []string {
+	names := make([]string, 0, len(m.notReadyNodes))
+	for name := range m.notReadyNodes {
+		names = append(names, name)
+	}
+	return names
 }
