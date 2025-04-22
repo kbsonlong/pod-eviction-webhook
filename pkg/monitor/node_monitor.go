@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kbsonlong/webhook/pkg/handler"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	v1 "k8s.io/api/core/v1"
@@ -29,15 +30,17 @@ type NodeMonitor struct {
 	mu            sync.RWMutex
 	threshold     int
 	window        time.Duration
+	callback      *handler.CallbackHandler
 }
 
 // NewNodeMonitor creates a new NodeMonitor instance
-func NewNodeMonitor(clientset *kubernetes.Clientset, threshold int, window time.Duration) *NodeMonitor {
+func NewNodeMonitor(clientset *kubernetes.Clientset, threshold int, window time.Duration, callback *handler.CallbackHandler) *NodeMonitor {
 	return &NodeMonitor{
 		clientset:     clientset,
 		notReadyNodes: make(map[string]time.Time),
 		threshold:     threshold,
 		window:        window,
+		callback:      callback,
 	}
 }
 
@@ -71,6 +74,13 @@ func (m *NodeMonitor) Start(ctx context.Context) error {
 
 // ShouldInterceptEviction checks if eviction should be intercepted
 func (m *NodeMonitor) ShouldInterceptEviction(pod *v1.Pod) bool {
+	// If the callback is not intercepting, allow eviction
+	if !m.callback.IsIntercepting() {
+		klog.Infof("Interception is disabled via callback, allowing eviction for pod %s/%s",
+			pod.Namespace, pod.Name)
+		return false
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -164,11 +174,13 @@ func (m *NodeMonitor) updateNodeStatus(node *v1.Node) {
 		// Use the node's LastTransitionTime as the start time for NotReady
 		notReadyTime := notReadyCondition.LastTransitionTime.Time
 		m.notReadyNodes[node.Name] = notReadyTime
+		m.callback.AddNotReadyNode(node.Name)
 		klog.Infof("Added/Updated node %s in NotReady nodes list with timestamp %v, current count: %d, nodes: %v",
 			node.Name, notReadyTime, len(m.notReadyNodes), m.getNotReadyNodeNames())
 	} else {
 		if _, exists := m.notReadyNodes[node.Name]; exists {
 			delete(m.notReadyNodes, node.Name)
+			m.callback.RemoveNotReadyNode(node.Name)
 			klog.Infof("Removed node %s from NotReady nodes list, current count: %d, remaining nodes: %v",
 				node.Name, len(m.notReadyNodes), m.getNotReadyNodeNames())
 		}

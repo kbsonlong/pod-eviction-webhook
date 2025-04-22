@@ -8,7 +8,7 @@
 2. 在5分钟内检测到3台及以上Worknodes出现NotReady状态时，自动开启Pod驱逐拦截
 3. 拦截Update事件，避免更新Pod状态和添加`deletionGracePeriodSeconds`和`deletionTimestamp`等元数据
 4. 只拦截NotReady节点上的Pod驱逐操作，其他正常节点上的Pod允许正常驱逐
-5. 提供配置接口，允许动态调整监控参数
+5. 提供callback进行解除拦截操作
 
 ## 架构设计
 
@@ -18,6 +18,7 @@
 2. **Node Monitor**: 监控节点状态变化
 3. **Eviction Interceptor**: 拦截Pod驱逐请求
 4. **Configuration Manager**: 管理Webhook配置
+5. **Callback Handler**: 处理解除拦截的回调请求
 
 ### 技术栈
 
@@ -59,6 +60,70 @@ webhooks:
   sideEffects: None
   admissionReviewVersions: ["v1"]
 ```
+
+## Callback 功能使用说明
+
+### 接口说明
+
+1. **禁用拦截**
+```bash
+curl -X POST http://your-webhook-server:8443/callback/disable-interception
+```
+响应示例：
+```json
+{
+  "status": "success",
+  "message": "Interception disabled successfully"
+}
+```
+
+2. **启用拦截**
+```bash
+curl -X POST http://your-webhook-server:8443/callback/enable-interception
+```
+响应示例：
+```json
+{
+  "status": "success",
+  "message": "Interception enabled successfully"
+}
+```
+
+3. **获取状态**
+```bash
+curl http://your-webhook-server:8443/callback/status
+```
+响应示例：
+```json
+{
+  "status": "success",
+  "data": {
+    "intercepting": true,
+    "notReadyNodes": ["node1", "node2"]
+  }
+}
+```
+
+### 使用场景
+
+1. **紧急情况处理**
+   - 当需要紧急恢复Pod驱逐功能时，可以调用禁用接口
+   - 系统会立即停止拦截所有Pod驱逐请求
+
+2. **维护操作**
+   - 在计划维护期间，可以临时禁用拦截
+   - 维护完成后，可以重新启用拦截
+
+3. **故障排查**
+   - 使用状态查询接口查看当前拦截状态
+   - 检查哪些节点处于NotReady状态
+
+### 注意事项
+
+1. 禁用拦截后，所有Pod驱逐请求都将被允许
+2. 重新启用拦截后，系统会重新开始监控节点状态
+3. 状态查询接口不会影响当前的拦截状态
+4. 建议在禁用拦截前，确保集群状态稳定
 
 ## 监控指标
 

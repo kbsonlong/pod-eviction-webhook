@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kbsonlong/webhook/pkg/config"
+	"github.com/kbsonlong/webhook/pkg/handler"
 	"github.com/kbsonlong/webhook/pkg/monitor"
 	"github.com/kbsonlong/webhook/pkg/webhook"
 	"k8s.io/client-go/kubernetes"
@@ -61,8 +62,11 @@ func main() {
 		klog.Fatalf("Failed to create Kubernetes client: %v", err)
 	}
 
+	// Create callback handler
+	callbackHandler := handler.NewCallbackHandler()
+
 	// Create node monitor
-	nodeMonitor := monitor.NewNodeMonitor(clientset, cfg.NodeNotReadyThreshold, cfg.NodeNotReadyWindow)
+	nodeMonitor := monitor.NewNodeMonitor(clientset, cfg.NodeNotReadyThreshold, cfg.NodeNotReadyWindow, callbackHandler)
 
 	// Create webhook handler
 	webhookHandler := webhook.NewWebhook(nodeMonitor, clientset)
@@ -77,6 +81,9 @@ func main() {
 
 	// Add webhook endpoint
 	router.POST("/validate", webhookHandler.HandleAdmission)
+
+	// Add callback endpoint
+	callbackHandler.RegisterRoutes(router)
 
 	// Create HTTP server
 	server := &http.Server{
