@@ -3,7 +3,21 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: webhook-test
 nodes:
 - role: control-plane
-  image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.3
+  image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.
+  kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    nodeStatusUpdateFrequency: 10s
+    evictionHard:
+      nodefs.available: "0%"
+    evictionPressureTransitionPeriod: 30s
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        node-monitor-period: "5s"
+        node-monitor-grace-period: "20s"
+        pod-eviction-timeout: "1m"
 - role: worker
   image: registry.cn-hangzhou.aliyuncs.com/seam/node:v1.27.3
 - role: worker

@@ -90,9 +90,12 @@ func (m *NodeMonitor) ShouldInterceptEviction(pod *v1.Pod) bool {
 	}
 	klog.Infof("Node %s is in NotReady list since %v", pod.Spec.NodeName, timestamp)
 
-	// Count nodes that have been NotReady for less than the window duration
+	// Calculate the number of NotReady nodes within the window
 	count := 0
 	now := time.Now()
+	klog.Infof("Current time: %v, Time window: %v", now, m.window)
+	klog.Infof("Current NotReady nodes: %v", m.getNotReadyNodeNames())
+
 	for nodeName, ts := range m.notReadyNodes {
 		timeSinceNotReady := now.Sub(ts)
 		if timeSinceNotReady < m.window {
@@ -158,9 +161,11 @@ func (m *NodeMonitor) updateNodeStatus(node *v1.Node) {
 			node.Name, notReadyCondition.Status, notReadyCondition.Reason,
 			notReadyCondition.Message, notReadyCondition.LastTransitionTime)
 
-		m.notReadyNodes[node.Name] = time.Now()
-		klog.Infof("Added/Updated node %s in NotReady nodes list, current count: %d, nodes: %v",
-			node.Name, len(m.notReadyNodes), m.getNotReadyNodeNames())
+		// Use the node's LastTransitionTime as the start time for NotReady
+		notReadyTime := notReadyCondition.LastTransitionTime.Time
+		m.notReadyNodes[node.Name] = notReadyTime
+		klog.Infof("Added/Updated node %s in NotReady nodes list with timestamp %v, current count: %d, nodes: %v",
+			node.Name, notReadyTime, len(m.notReadyNodes), m.getNotReadyNodeNames())
 	} else {
 		if _, exists := m.notReadyNodes[node.Name]; exists {
 			delete(m.notReadyNodes, node.Name)

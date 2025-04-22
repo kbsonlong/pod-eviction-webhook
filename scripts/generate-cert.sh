@@ -12,8 +12,33 @@ openssl req -x509 -new -nodes -key ${CERT_DIR}/ca.key -subj "/CN=pod-eviction-pr
 
 # Generate server certificate
 openssl genrsa -out ${CERT_DIR}/tls.key 2048
-openssl req -new -key ${CERT_DIR}/tls.key -subj "/CN=pod-eviction-protection.default.svc" -out ${CERT_DIR}/tls.csr
-openssl x509 -req -in ${CERT_DIR}/tls.csr -CA ${CERT_DIR}/ca.crt -CAkey ${CERT_DIR}/ca.key -CAcreateserial -out ${CERT_DIR}/tls.crt -days 3650
+
+# Create CSR config file with SANs
+cat > ${CERT_DIR}/csr.conf << EOF
+[req]
+req_extensions = v3_req
+distinguished_name = req_distinguished_name
+[req_distinguished_name]
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = pod-eviction-protection
+DNS.2 = pod-eviction-protection.default
+DNS.3 = pod-eviction-protection.default.svc
+DNS.4 = pod-eviction-protection.default.svc.cluster.local
+EOF
+
+# Generate CSR with SANs
+openssl req -new -key ${CERT_DIR}/tls.key -subj "/CN=pod-eviction-protection.default.svc" \
+    -config ${CERT_DIR}/csr.conf -out ${CERT_DIR}/tls.csr
+
+# Sign the certificate with CA
+openssl x509 -req -in ${CERT_DIR}/tls.csr -CA ${CERT_DIR}/ca.crt -CAkey ${CERT_DIR}/ca.key \
+    -CAcreateserial -out ${CERT_DIR}/tls.crt -days 3650 \
+    -extensions v3_req -extfile ${CERT_DIR}/csr.conf
 
 # Create Kubernetes secret
 kubectl create secret tls pod-eviction-protection-tls \

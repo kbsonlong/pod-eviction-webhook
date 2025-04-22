@@ -31,7 +31,7 @@ run:
 
 # Build for local architecture
 build-local:
-	docker buildx build --platform linux/$(shell go env GOARCH) -t pod-eviction-protection:latest .
+	docker buildx build  --platform linux/$(shell go env GOARCH) -t pod-eviction-protection:latest . --load
 
 # Create kind test cluster
 create-cluster:
